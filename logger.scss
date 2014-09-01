@@ -1,0 +1,227 @@
+// ----
+// Sass (v3.4.1)
+// Compass (v1.0.1)
+// ----
+
+// The idea is to provide some kind of friendly API to log stuff in Sass,
+// including a way to log different type of messages (warnings, errors...).
+// This is obviously mainly aimed at framework and library developers.
+//
+// Current implementation provides:
+// - 5 levels of logging ("DEBUG" "INFO" "WARN" "ERROR" "FATAL");
+// - a minimum level at which the logger starts printing;
+// - an history of all logs, that can be printed as CSS;
+// - a friendly API with easy-to-use functions;
+// - a helper to learn more about different levels of logging.
+//
+// Also note that SassMeister doesn't show `@warn` but this code
+// would print content in the console in a regular environment.
+// 
+// Feel free to do whatever you want with this.
+
+
+
+
+
+// Instantiate a logger.
+// This should be called once only.
+//
+// @param {String} minimum-level - Level at which the logger starts printing. Use `OFF` to disable.
+// @requires {function} logger-conf
+// @output Nothing, it just creates a global configuration map.
+//
+// @example scss - Instantiate a new logger logging INFO and up.
+//  @include logger("INFO");
+@mixin logger($minimum-level) {
+  $levels: "DEBUG" "INFO" "WARN" "ERROR" "FATAL";
+  $minimum-level: to-upper-case($minimum-level);
+  
+  // If level is ALL, go with lowest level
+  @if $minimum-level == "ALL" {
+    $minimum-level: nth($levels, 1);
+  }
+  
+  // Fallback
+  @if not index($levels "OFF", $minimum-level) {
+    $minimum-level: "INFO";
+  }
+    
+  // Create global variable
+  $logger-configuration: (
+    "levels"  : $levels,
+    "errors"  : "FATAL" "ERROR",
+    "min"     : index($levels, $minimum-level),
+    "enabled" : $minimum-level != "OFF",
+    "history" : (
+      "DEBUG" : (),
+      "INFO"  : (),
+      "WARN"  : (),
+      "ERROR" : (),
+      "FATAL" : ()
+    )
+  ) !global;
+}
+
+
+
+
+
+// Helper to get a key from `$logger-configuration` map.
+//
+// @access private
+// @param {String} $key - Option to get from map
+// @requires $logger-configuration
+// @return {*} Option from `$logger-configuration` or `null` if `$key` doesn't exist.
+// 
+// @example scss - Get history from configuration map
+// $history: logger-conf("history");
+@function logger-conf($key) {
+  @return map-get($logger-configuration, $key);
+}
+
+
+
+
+
+// Log a new `$message` with `$level`.
+//
+// @access private
+// @param {String} $level - Message's level
+// @param {String} $message - Message to log
+// @requires {function} logger-conf
+// @requires {mixin} logger-update-history
+// @output Nothing, but warn/error in the console
+// 
+// @example scss - Log a new error.
+//  @include log("ERROR", "Something's wrong.");
+@mixin log($level, $message) {
+  // Test whether `logger-configuration` global variable exists.
+  // If it doesn't, it means `logger` has not been included,
+  // so we include it, arbitrary setting the min level to `INFO`.
+  @if not global-variable-exists("logger-configuration") {
+    @include logger("INFO");
+  }
+  
+  $level: to-upper-case($level);
+  
+  // Unless it's disabled, proceed
+  @if logger-conf("enabled") {
+    // Get current level's index
+    $index-current-level: index(logger-conf("levels"), $level);
+    
+    // If `$level` is invalid, falls back on `INFO`
+    @if not $index-current-level { $level: "INFO" }
+    
+    // Update logger history
+    @include logger-update-history($level, $message);
+    
+    // Finally, print message in console if current level is over minimum level
+    @if $index-current-level >= logger-conf("min") {
+      $print: $level + " :: " + $message;
+  
+      // `@error` if it's an error level
+      @if index(logger-conf("errors"), $level) {
+        @error $print;
+      }
+      
+      // Else `@warn`
+      @else {
+        @warn $print;
+      }
+    }
+  }
+}
+
+// A couple of shortcuts for `log` mixin.
+@mixin FATAL($message) { @include log("FATAL", $message); }
+@mixin ERROR($message) { @include log("ERROR", $message); }
+@mixin  WARN($message) { @include log("WARN",  $message); }
+@mixin  INFO($message) { @include log("INFO",  $message); }
+@mixin DEBUG($message) { @include log("DEBUG", $message); }
+
+
+
+
+
+// Update logger history
+//
+// @access private
+// @param {String} $level - Message's level
+// @param {String} $message - Message to log
+// @requires {function} logger-conf
+// @requires $logger-configuration
+// @output Nothing
+//
+// @example scss - Update logger history with new entry
+//  @include logger-update-history($level, $message);
+@mixin logger-update-history($level, $message) {
+  $history: logger-conf("history");
+  $current-level-history: map-get($history, $level);
+  $current-level-history: append($current-level-history, $message);
+  $logger-history: map-merge($history, ($level: $current-level-history));
+  $logger-configuration: map-merge($logger-configuration, ("history": $logger-history)) !global;
+}
+
+// Print logger history
+//
+// @requires logger-conf
+// @output A `logger-logs` block
+//
+// @example scss - Print current logs.
+//  @include logger-print-logs;
+@mixin logger-print-logs {
+  logger-logs {
+    @each $level, $logs in logger-conf("history") {
+      @if index(logger-conf("levels"), $level) >= logger-conf("min") and length($logs) > 0 {
+        @each $log in $logs {
+          #{$level}: $log;
+        }
+      }
+    }
+  }
+}
+
+// Print some extra informations about logger levels and what they mean
+//
+// @output A `logger-help` block
+//
+// @example scss - Print some extra help.
+//  @include logger-help;
+@mixin logger-help {
+  logger-help {
+    OFF: "Disable the logger.";
+    FATAL: "Severe errors that cause premature termination.";
+    ERROR: "Other runtime errors or unexpected conditions.";
+    WARN: "Use of deprecated APIs, poor use of API, 'almost' errors,"
+    + "other runtime situations that are undesirable or unexpected, but not necessarily wrong.";
+    INFO: "Interesting runtime events (startup/shutdown).";
+    DEBUG: "Detailed information on the flow through the system.";
+  }
+}
+
+
+
+
+
+// EXAMPLE
+
+// Instantiate a new logger,
+// with "INFO" as the minimum level for logging.
+// If you don't instantiate it yourself,
+// it will be done automatically on first log.
+@include logger("INFO");
+
+// Logger help (optional, obviously)
+@include logger-help;
+
+// Log stuff
+@include INFO("Hey, look at that.");
+@include INFO("Bring in the unicorns!");
+@include WARN("Dude, pay attention.");
+
+// This one is not printed in the console but still tracked in logs.
+@include DEBUG("Debug and stuff."); 
+
+// Output history (optional),
+// especially useful for debugging.
+@include logger-print-logs;
